@@ -66,6 +66,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 </main>
 <script>
 const R=8.314462618,RV=R*10,T0=298.15,sq=Math.sqrt,ln=Math.log,$=id=>document.getElementById(id);
+const API_URL = "https://real-gas-calculator-project-chl2002-fall.onrender.com";
 const SP="methane|.012|190.6|45.99|1.702|9.081|-2.164|0;ethane|.1|305.3|48.72|1.131|19.225|-5.561|0;propane|.152|369.8|42.48|1.213|28.785|-8.824|0;n-butane|.2|425.1|37.96|1.935|36.915|-11.402|0;isobutane|.181|408.1|36.48|1.677|37.853|-11.945|0;n-pentane|.252|469.7|33.7|2.464|45.351|-14.111|0;n-hexane|.301|507.6|30.25|3.025|53.722|-16.791|0;n-heptane|.35|540.2|27.4|3.57|62.127|-19.486|0;ethylene|.087|282.3|50.4|1.424|14.394|-4.392|0;propylene|.14|365.6|46.65|1.637|22.706|-6.915|0;acetylene|.187|308.3|61.39|6.132|1.952|0|-1.299;benzene|.21|562.2|48.98|-.206|39.064|-13.301|0;toluene|.262|591.8|41.06|.29|47.052|-15.716|0;cyclohexane|.21|553.6|40.73|-3.876|63.249|-20.928|0;methanol|.564|512.6|80.97|2.211|12.216|-3.45|0;ethanol|.645|513.9|61.48|3.518|20.001|-6.002|0;ammonia|.253|405.7|112.8|3.578|3.02|0|-.186;carbon monoxide|.048|132.9|34.99|3.376|.557|0|-.031;carbon dioxide|.224|304.2|73.83|5.457|1.045|0|-1.157;hydrogen|-.216|33.19|13.13|3.249|.422|0|.083;hydrogen sulfide|.094|373.5|89.63|3.931|1.49|0|-.232;nitrogen|.038|126.2|34|3.28|.593|0|.04;nitrous oxide|.141|309.6|72.45|5.328|1.214|0|-.928;oxygen|.022|154.6|50.43|3.639|.506|0|-.227;sulfur dioxide|.245|430.8|78.84|5.699|.801|0|-1.015;water|.345|647.1|220.55|3.47|1.45|0|.121;chlorine|.069|417.2|77.1|4.442|.089|0|-.344;air|.035|132.2|37.45|3.355|.575|0|-.016;argon|0|150.9|48.98|2.5|0|0|0".split(";").map(s=>{const a=s.split("|");return{n:a[0],w:+a[1],Tc:+a[2],Pc:+a[3],cp:[+a[4],a[5]*1e-3,a[6]*1e-6,a[7]*1e5]}});
 const E={vdW:{s:0,e:0,O:1/8,Y:27/64,Zc:3/8,a:()=>1,d:()=>0},RK:{s:1,e:0,O:.08664,Y:.42748,Zc:1/3,a:t=>t**-.5,d:()=>-.5},
 SRK:{s:1,e:0,O:.08664,Y:.42748,Zc:1/3,k:w=>.48+1.574*w-.176*w*w},PR:{s:1+sq(2),e:1-sq(2),O:.0778,Y:.45724,Zc:.3074,k:w=>.37464+1.54226*w-.26992*w*w}};
@@ -133,7 +134,46 @@ function build(){$("inp").innerHTML=FLD[$("mode").value].map(k=>`<label>${LAB(k)
 function curSp(){const v=$("sp").value;if(v!=="c")return SP[+v];const g=id=>$(id).value.trim(),x=id=>g(id)===""?0:+g(id);
 const s={n:"custom",w:x("cw"),Tc:+g("cTc"),Pc:+g("cPc"),cp:g("cA")===""?null:[x("cA"),x("cB"),x("cC"),x("cD")]};
 if(!(s.Tc>0&&s.Pc>0))throw Error("Enter Tc and Pc for the custom species.");return s}
-function run(){try{const o=mk(curSp(),$("eos").value);$("out").innerHTML=MODE[$("mode").value](o,$("ph").value)}catch(e){$("out").innerHTML=`<p class="er">${e.message}</p>`}}
+async function run(){
+  try{
+    const mode = $("mode").value;
+    const o = mk(curSp(), $("eos").value);
+
+    if(mode === "tp" && !curSp().custom){
+      const response = await fetch(API_URL + "/calculate", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          species: curSp().n,
+          eos: $("eos").value,
+          temperature: gT("T"),
+          pressure: gP("P"),
+          phase: $("ph").value
+        })
+      });
+
+      const data = await response.json();
+      if(!response.ok) throw new Error(data.detail || "API calculation failed");
+
+      $("out").innerHTML = `
+        <h3>Python Backend Results</h3>
+        <table>
+          <tr><td>Compressibility factor (Z)</td><td>${data.Z.toFixed(6)}</td></tr>
+          <tr><td>Molar volume</td><td>${data.volume.toFixed(4)}</td></tr>
+          <tr><td>Enthalpy (H)</td><td>${data.enthalpy.toFixed(4)}</td></tr>
+          <tr><td>Entropy (S)</td><td>${data.entropy.toFixed(4)}</td></tr>
+          <tr><td>Residual enthalpy</td><td>${data.residual_enthalpy.toFixed(4)}</td></tr>
+          <tr><td>Residual entropy</td><td>${data.residual_entropy.toFixed(4)}</td></tr>
+          <tr><td>Fugacity coefficient (φ)</td><td>${data.fugacity_coefficient.toFixed(6)}</td></tr>
+          <tr><td>Fugacity</td><td>${data.fugacity.toFixed(4)}</td></tr>
+        </table>`;
+    } else {
+      $("out").innerHTML = MODE[mode](o, $("ph").value);
+    }
+  }catch(e){
+    $("out").innerHTML = `<p class="er">${e.message}</p>`;
+  }
+}
 function ex(s,e,m,v,ph){$("sp").value=String(SP.findIndex(x=>x.n===s));$("cu").hidden=true;$("eos").value=e;$("mode").value=m;$("Tu").value="K";$("Pu").value="bar";$("ph").value=ph;build();for(const k in v)$(k).value=v[k];run()}
 const EX=[["n-butane","PR","tp",{T:500,P:50},"vapor"],["n-butane","PR","sat",{T:350},"auto"],["water","PR","tp",{T:573.15,P:40},"vapor"]];
 $("sp").innerHTML=SP.map((s,i)=>`<option value="${i}">${s.n}</option>`).join("")+'<option value="c">custom…</option>';
