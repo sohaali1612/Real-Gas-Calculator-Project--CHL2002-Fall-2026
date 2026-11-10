@@ -1,4 +1,3 @@
 numpy
 matplotlib
-fastapi
-uvicorn
+available on google colab/vs code
